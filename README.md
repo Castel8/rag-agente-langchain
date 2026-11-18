@@ -202,6 +202,44 @@ Elección correcta de herramienta en **6 de 6** preguntas y sin datos inventados
 
 Para repetir la evaluación del RAG con tus documentos, edita la lista `PREGUNTAS` de `src/evaluar.py` (pregunta y respuesta esperada), ejecuta `python src\evaluar.py` y completa en `evaluacion.xlsx` las columnas de sí/no.
 
+## API (FastAPI)
+
+Microservicio que expone el modelo de fallas (Gradient Boosting) y el asistente RAG. Se diseñó con enfoque *API first*: primero los conceptos ([`especificacion/conceptos.md`](especificacion/conceptos.md)), los requisitos ([`especificacion/requisitos.md`](especificacion/requisitos.md)) y el contrato ([`especificacion/contrato.md`](especificacion/contrato.md)), y después el código., después el código.
+
+| Endpoint | Qué hace |
+|---|---|
+| `GET /health` | Verifica que el servicio está activo |
+| `POST /predict` | Recibe las lecturas de una máquina y devuelve la probabilidad de falla y la predicción (umbral 0.5) |
+| `POST /ask` | Responde una pregunta sobre los documentos, citando solo las fuentes usadas; si no hay información, `encontrado: false` |
+
+**Ejecutar**
+```
+uvicorn api.main:app --reload
+```
+Documentación interactiva (Swagger) en `http://127.0.0.1:8000/docs` y contrato OpenAPI en `/openapi.json`.
+
+**Ejemplo**
+```json
+POST /predict
+{"air_temp_k": 298.9, "process_temp_k": 309.0, "rpm": 1410, "torque_nm": 65.7, "tool_wear_min": 191, "type": "L"}
+
+200 OK
+{"probabilidad_falla": 0.9998, "prediccion": 1}
+```
+
+**Decisiones de diseño**
+- Pydantic valida tipos y rangos; los errores devuelven `{"detalle": "..."}` con código `422` (el estándar de FastAPI para datos inválidos), `503` si el modelo de lenguaje no responde y `504` si se supera el tiempo.
+- La API calcula `power_w` y `temp_diff_k` con las mismas fórmulas del entrenamiento; el cliente no las envía.
+- Una pregunta sin respuesta en los documentos no es un error: devuelve `200` con `encontrado: false`.
+- Los rangos permitidos son más amplios que los datos de entrenamiento (por ejemplo, rpm hasta 5000 frente a un máximo de 2886 en el dataset); fuera de ese rango las predicciones del modelo no son confiables.
+- El modelo se guardó con scikit-learn 1.9.0; con otra versión aparece un aviso (`InconsistentVersionWarning`) y conviene instalar la misma.
+
+**Pruebas**
+```
+python -m pytest -v
+```
+Cubren `/health`, `/predict` con datos válidos y `/predict` con datos inválidos.
+
 ## Estructura del proyecto
 
 ```
@@ -224,6 +262,16 @@ Para repetir la evaluación del RAG con tus documentos, edita la lista `PREGUNTA
 │   ├── evaluar.py
 │   ├── probar_llm.py     # prueba la conexión con el modelo
 │   └── probar_modelos.py # lista y prueba los modelos disponibles
+├── api/
+    ├──main.py
+    ├──test/
+          ├── test_api.py
+    ├──models/
+          ├──modelo_gb.joblib
+    ├──especificacion
+          ├──conceptos.md
+          ├──contrato.md
+          ├──requisitos.md
 ├── chroma_db/            # base vectorial (se genera, no se sube)
 ├── .env                  # tu clave (no se sube)
 ├── .env.example          # plantilla de la clave
